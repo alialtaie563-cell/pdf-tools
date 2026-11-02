@@ -24,17 +24,16 @@
 <!-- Tailwind CSS (CDN) -->
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
-  tailwind.config = {
-    darkMode: 'class',
-    theme: { extend: { fontFamily: { sans: ['Cairo', 'system-ui', 'sans-serif'] } } }
-  };
+  if (window.tailwind) {
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: { fontFamily: { sans: ['Cairo', 'system-ui', 'sans-serif'] } } }
+    };
+  }
 </script>
 
-<!-- Libraries (CDN) -->
-<!-- pdf-lib with encryption support (drop-in fork of pdf-lib; the original pdf-lib cannot set passwords) -->
-<script src="https://unpkg.com/pdf-lib-plus-encrypt@1.1.1/dist/pdf-lib.min.js"></script>
-<!-- jsPDF: images -> PDF -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- Libraries (pdf-lib, jsPDF, pdf-lib-plus-encrypt) are loaded by the app script below,
+     each from several CDNs in turn (cdnjs -> jsDelivr -> unpkg), so one blocked CDN can't break the site. -->
 
 <style type="text/tailwindcss">
   @layer components {
@@ -569,8 +568,97 @@
     }
   }
 
-  function needLibs(...names) {
-    for (const n of names) if (!window[n]) throw new UserError(t('errLib'));
+  /* ------------------------------------------------------------------
+   * Library loader with CDN fallbacks.
+   * Each library is tried from several CDNs in order until one works.
+   *  - PDFLib     : pdf-lib 1.17.1 (merge, split, watermark)
+   *  - jsPDF      : jsPDF 2.5.1 (images -> PDF)
+   *  - PDFLibEnc  : pdf-lib-plus-encrypt 1.1.0 (only needed for password protection;
+   *                 the original pdf-lib cannot encrypt)
+   * ------------------------------------------------------------------ */
+  const LIB_URLS = {
+    pdflib: [
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js',
+      'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js',
+      'https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js'
+    ],
+    jspdf: [
+      'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+      'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js',
+      'https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js'
+    ],
+    enc: [
+      'https://cdn.jsdelivr.net/npm/pdf-lib-plus-encrypt@1.1.0/dist/pdf-lib-plus-encrypt.min.js',
+      'https://unpkg.com/pdf-lib-plus-encrypt@1.1.0/dist/pdf-lib-plus-encrypt.min.js'
+    ]
+  };
+
+  let PDFLib = null;       // base pdf-lib (shadows the global of the same name on purpose)
+  let PDFLibEnc = null;    // pdf-lib with encryption support
+  let jsPDFLib = null;
+  const libPromises = {};
+
+  function loadScript(url, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      const timer = setTimeout(() => { s.remove(); reject(new Error('timeout ' + url)); }, timeoutMs);
+      s.src = url; s.async = true;
+      s.onload = () => { clearTimeout(timer); resolve(); };
+      s.onerror = () => { clearTimeout(timer); s.remove(); reject(new Error('failed ' + url)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  /** Tries each URL until `isReady()` is true. Returns true on success. */
+  async function loadFromAny(urls, isReady) {
+    if (isReady()) return true;
+    for (const url of urls) {
+      try { await loadScript(url); if (isReady()) return true; }
+      catch (e) { console.warn('CDN failed, trying next:', url); }
+    }
+    return false;
+  }
+
+  /** Wraps a loader so it runs once; a failed attempt can be retried later. */
+  function once(key, fn) {
+    if (!libPromises[key]) {
+      libPromises[key] = fn().catch(e => { delete libPromises[key]; throw e; });
+    }
+    return libPromises[key];
+  }
+
+  function ensurePdfLib() {
+    return once('pdflib', async () => {
+      if (PDFLib) return PDFLib;
+      if (await loadFromAny(LIB_URLS.pdflib, () => !!window.PDFLib)) { PDFLib = window.PDFLib; return PDFLib; }
+      // Last resort: the encryption build is a full pdf-lib superset and can do everything too.
+      if (await loadFromAny(LIB_URLS.enc, () => !!window.PDFLib)) { PDFLib = PDFLibEnc = window.PDFLib; return PDFLib; }
+      throw new UserError(t('errLib'));
+    });
+  }
+
+  function ensureJsPdf() {
+    return once('jspdf', async () => {
+      if (jsPDFLib) return jsPDFLib;
+      if (await loadFromAny(LIB_URLS.jspdf, () => !!(window.jspdf && window.jspdf.jsPDF))) {
+        jsPDFLib = window.jspdf.jsPDF; return jsPDFLib;
+      }
+      throw new UserError(t('errLib'));
+    });
+  }
+
+  function ensureEncLib() {
+    return once('enc', async () => {
+      if (PDFLibEnc) return PDFLibEnc;
+      await ensurePdfLib();
+      if (PDFLibEnc) return PDFLibEnc;
+      const base = window.PDFLib;      // the encryption build uses the same global name,
+      const ok = await loadFromAny(LIB_URLS.enc, () => !!window.PDFLib && window.PDFLib !== base);
+      if (!ok) throw new UserError(t('errEncLib'));
+      PDFLibEnc = window.PDFLib;       // keep it separately...
+      window.PDFLib = base;            // ...and restore the base global
+      return PDFLibEnc;
+    });
   }
   function fileError(e, name) {
     const enc = /encrypt/i.test(e && e.message || '');
@@ -651,7 +739,7 @@
 
   /** Reads a PDF just to learn its page count (and validate it). */
   async function inspectPdf(file) {
-    needLibs('PDFLib');
+    await ensurePdfLib();
     try {
       const doc = await PDFLib.PDFDocument.load(await file.arrayBuffer());
       return doc.getPageCount();
@@ -771,7 +859,7 @@
   async function doMerge() {
     if (state.merge.length < 2) return toast(t('errNeedTwo'), 'error');
     await runTask('merge', async progress => {
-      needLibs('PDFLib');
+      await ensurePdfLib();
       const out = await PDFLib.PDFDocument.create();
       const n = state.merge.length;
       for (let i = 0; i < n; i++) {
@@ -814,9 +902,11 @@
   async function doSplit() {
     const s = state.split;
     if (!s) return toast(t('errNeedFile'), 'error');
-    const indices = parseRanges($('#splitRange').value, s.pages); // throws UserError
+    let indices;
+    try { indices = parseRanges($('#splitRange').value, s.pages); }
+    catch (e) { return toast(e instanceof UserError ? e.message : t('errGeneric'), 'error'); }
     await runTask('split', async progress => {
-      needLibs('PDFLib');
+      await ensurePdfLib();
       progress(.2, `${t('reading')} — ${s.file.name}`); await tick();
       let src;
       try { src = await PDFLib.PDFDocument.load(await s.file.arrayBuffer()); }
@@ -847,8 +937,8 @@
     const mode = $('#imgPage').value;
     const quality = parseFloat($('#imgQuality').value);
     await runTask('img', async progress => {
-      needLibs('jspdf');
-      const { jsPDF } = window.jspdf;
+      progress(.02, t('preparing'));
+      const jsPDF = await ensureJsPdf();
       let doc = null;
       const n = state.img.length;
       for (let i = 0; i < n; i++) {
@@ -902,10 +992,11 @@
     if (!pw) return toast(t('errPwEmpty'), 'error');
     if (pw !== pw2) return toast(t('errPwMismatch'), 'error');
     await runTask('protect', async progress => {
-      needLibs('PDFLib');
+      progress(.1, t('preparing'));
+      await ensureEncLib();
       progress(.25, `${t('reading')} — ${s.file.name}`); await tick();
       let pdf;
-      try { pdf = await PDFLib.PDFDocument.load(await s.file.arrayBuffer()); }
+      try { pdf = await PDFLibEnc.PDFDocument.load(await s.file.arrayBuffer()); }
       catch (e) { throw fileError(e, s.file.name); }
       if (typeof pdf.encrypt !== 'function') throw new UserError(t('errEncLib'));
       progress(.6, t('preparing')); await tick();
@@ -979,7 +1070,7 @@
     const color = $('#wmColor').value, layout = $('#wmLayout').value;
 
     await runTask('wm', async progress => {
-      needLibs('PDFLib');
+      await ensurePdfLib();
       progress(.1, `${t('reading')} — ${s.file.name}`); await tick();
       let pdf;
       try { pdf = await PDFLib.PDFDocument.load(await s.file.arrayBuffer()); }
@@ -1087,7 +1178,11 @@
     applyLang();
     showTool(location.hash.slice(1) || 'merge');
 
-    if (!window.PDFLib || !window.jspdf) toast(t('errLib'), 'error');
+    // Start loading the libraries in the background so the tools are instant when used.
+    // (The encryption build is loaded later, only if the user opens "Protect PDF".)
+    Promise.allSettled([ensurePdfLib(), ensureJsPdf()]).then(r => {
+      if (r.some(x => x.status === 'rejected')) toast(t('errLib'), 'error');
+    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
