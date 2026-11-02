@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>أدوات PDF والصور | PDF Toolkit</title>
+<meta name="description" content="أدوات PDF والصور مجانية تعمل بالكامل داخل متصفحك: دمج، تقسيم، تحويل الصور، حماية بكلمة مرور، وعلامة مائية. Free client-side PDF & image tools.">
+
+<!-- Apply saved theme before first paint (prevents flash) -->
+<script>
+  (function () {
+    try {
+      var th = localStorage.getItem('theme') || 'dark';
+      if (th === 'light') document.documentElement.classList.remove('dark');
+    } catch (e) {}
+  })();
+</script>
+
+<!-- Fonts: Cairo (Arabic + Latin) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<!-- Tailwind CSS (CDN) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: { extend: { fontFamily: { sans: ['Cairo', 'system-ui', 'sans-serif'] } } }
+  };
+</script>
+
+<!-- Libraries (CDN) -->
+<!-- pdf-lib with encryption support (drop-in fork of pdf-lib; the original pdf-lib cannot set passwords) -->
+<script src="https://unpkg.com/pdf-lib-plus-encrypt@1.1.1/dist/pdf-lib.min.js"></script>
+<!-- jsPDF: images -> PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style type="text/tailwindcss">
+  @layer components {
+    .card { @apply rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900; }
+    .btn-primary { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-blue-500 px-6 py-3 font-bold text-white shadow-lg shadow-blue-500/25 transition hover:bg-blue-600 active:scale-[.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900; }
+    .btn-soft { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700; }
+    .field { @apply w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-slate-900 placeholder-slate-400 transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder-slate-500; }
+    .lbl { @apply mb-1.5 block text-sm font-semibold text-slate-600 dark:text-slate-300; }
+    .icon-btn { @apply inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white; }
+  }
+</style>
+
+<style>
+  body { font-family: 'Cairo', system-ui, sans-serif; }
+  /* Drop zone */
+  .dz {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem;
+    padding: 2.25rem 1rem; text-align: center; cursor: pointer;
+    border: 2px dashed rgb(148 163 184 / .6); border-radius: 1rem;
+    background: rgb(59 130 246 / .04); transition: all .2s ease;
+  }
+  .dz:hover, .dz:focus-visible, .dz.dz-over {
+    border-color: #3b82f6; background: rgb(59 130 246 / .1); transform: translateY(-1px); outline: none;
+  }
+  .dz.dz-over { box-shadow: 0 0 0 4px rgb(59 130 246 / .18); }
+  /* Spinner */
+  .spinner {
+    width: 64px; height: 64px; border-radius: 9999px;
+    border: 5px solid rgb(59 130 246 / .2); border-top-color: #3b82f6;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+  .pop { animation: pop .25s ease both; }
+  input[type=range] { accent-color: #3b82f6; }
+  .tab-active { border-color: #3b82f6 !important; background: rgb(59 130 246 / .1) !important; box-shadow: 0 0 0 3px rgb(59 130 246 / .18); }
+  .scroll-soft::-webkit-scrollbar { width: 8px; }
+  .scroll-soft::-webkit-scrollbar-thumb { background: rgb(148 163 184 / .4); border-radius: 8px; }
+</style>
+</head>
+
+<body class="min-h-screen bg-slate-50 text-slate-800 antialiased dark:bg-slate-950 dark:text-slate-100">
+
+<!-- ============================ HEADER ============================ -->
+<header class="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
+  <div class="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+    <div class="flex items-center gap-3">
+      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500 text-white shadow-lg shadow-blue-500/30">
+        <i data-lucide="file-text" class="h-5 w-5"></i>
+      </div>
+      <div class="leading-tight">
+        <p class="text-lg font-extrabold" data-i18n="appName"></p>
+        <p class="hidden text-xs text-slate-500 dark:text-slate-400 sm:block" data-i18n="appTag"></p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <a data-wa target="_blank" rel="noopener noreferrer"
+         class="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-emerald-500/25 transition hover:bg-emerald-600">
+        <i data-lucide="message-circle" class="h-4 w-4"></i>
+        <span class="hidden md:inline" data-i18n="waCta"></span>
+        <span class="md:hidden" data-i18n="waShort"></span>
+      </a>
+      <button id="langBtn" class="btn-soft" aria-label="Language">
+        <i data-lucide="languages" class="h-4 w-4"></i><span id="langLabel">English</span>
+      </button>
+      <button id="themeBtn" class="icon-btn border border-slate-200 dark:border-slate-700" aria-label="Theme">
+        <i data-lucide="sun" class="hidden h-5 w-5 dark:block"></i>
+        <i data-lucide="moon" class="h-5 w-5 dark:hidden"></i>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ============================ MAIN ============================ -->
+<main class="mx-auto max-w-6xl px-4 py-8 sm:py-12">
+
+  <!-- Hero -->
+  <section class="mb-8 text-center">
+    <h1 class="text-3xl font-extrabold leading-tight sm:text-4xl" data-i18n="heroTitle"></h1>
+    <p class="mx-auto mt-3 max-w-2xl text-slate-500 dark:text-slate-400" data-i18n="heroSub"></p>
+  </section>
+
+  <!-- Tool tabs -->
+  <nav id="tabs" class="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" aria-label="Tools">
+    <button data-tab="merge" class="card flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-0.5 hover:border-blue-400">
+      <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500"><i data-lucide="merge" class="h-6 w-6"></i></span>
+      <span class="text-sm font-bold" data-i18n="merge"></span>
+    </button>
+    <button data-tab="split" class="card flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-0.5 hover:border-blue-400">
+      <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500"><i data-lucide="scissors" class="h-6 w-6"></i></span>
+      <span class="text-sm font-bold" data-i18n="split"></span>
+    </button>
+    <button data-tab="img" class="card flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-0.5 hover:border-blue-400">
+      <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500"><i data-lucide="images" class="h-6 w-6"></i></span>
+      <span class="text-sm font-bold" data-i18n="img"></span>
+    </button>
+    <button data-tab="protect" class="card flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-0.5 hover:border-blue-400">
+      <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500"><i data-lucide="lock" class="h-6 w-6"></i></span>
+      <span class="text-sm font-bold" data-i18n="protect"></span>
+    </button>
+    <button data-tab="wm" class="card col-span-2 flex flex-col items-center gap-2 p-4 text-center transition hover:-translate-y-0.5 hover:border-blue-400 sm:col-span-1">
+      <span class="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500"><i data-lucide="stamp" class="h-6 w-6"></i></span>
+      <span class="text-sm font-bold" data-i18n="wm"></span>
+    </button>
+  </nav>
+
+  <!-- ===================== 1. MERGE ===================== -->
+  <section id="tool-merge" data-tool="merge" class="tool card hidden p-5 sm:p-8">
+    <div class="mb-6">
+      <h2 class="text-2xl font-extrabold" data-i18n="merge"></h2>
+      <p class="mt-1 text-slate-500 dark:text-slate-400" data-i18n="mergeDesc"></p>
+    </div>
+    <div data-dz data-tool="merge" data-accept=".pdf,application/pdf" data-multiple="true" data-key="dropPdfMulti" data-icon="upload"></div>
+
+    <div id="mergeWrap" class="mt-6 hidden">
+      <div class="mb-3 flex items-center justify-between">
+        <h3 class="font-bold"><span data-i18n="files"></span> (<span id="mergeCount">0</span>)</h3>
+        <button data-clear="merge" class="text-sm font-semibold text-red-500 hover:underline" data-i18n="clearAll"></button>
+      </div>
+      <ul id="mergeList" class="scroll-soft max-h-96 space-y-2 overflow-y-auto"></ul>
+      <p class="mt-3 text-xs text-slate-500 dark:text-slate-400" data-i18n="mergeHint"></p>
+    </div>
+
+    <button id="btnMerge" class="btn-primary mt-6 w-full sm:w-auto"><i data-lucide="merge" class="h-5 w-5"></i><span data-i18n="btnMerge"></span></button>
+    <div data-result="merge"></div>
+  </section>
+
+  <!-- ===================== 2. SPLIT ===================== -->
+  <section id="tool-split" data-tool="split" class="tool card hidden p-5 sm:p-8">
+    <div class="mb-6">
+      <h2 class="text-2xl font-extrabold" data-i18n="split"></h2>
+      <p class="mt-1 text-slate-500 dark:text-slate-400" data-i18n="splitDesc"></p>
+    </div>
+    <div data-dz data-tool="split" data-accept=".pdf,application/pdf" data-multiple="false" data-key="dropPdfOne" data-icon="upload"></div>
+    <div data-single="split" class="mt-4"></div>
+
+    <div id="splitOpts" class="mt-6 hidden">
+      <label class="lbl" for="splitRange" data-i18n="rangeLabel"></label>
+      <input id="splitRange" type="text" dir="ltr" class="field" data-i18n-ph="rangePh" autocomplete="off" inputmode="text">
+      <p class="mt-2 text-xs text-slate-500 dark:text-slate-400" data-i18n="rangeHint"></p>
+    </div>
+
+    <button id="btnSplit" class="btn-primary mt-6 w-full sm:w-auto"><i data-lucide="scissors" class="h-5 w-5"></i><span data-i18n="btnSplit"></span></button>
+    <div data-result="split"></div>
+  </section>
+
+  <!-- ===================== 3. IMAGES -> PDF ===================== -->
+  <section id="tool-img" data-tool="img" class="tool card hidden p-5 sm:p-8">
+    <div class="mb-6">
+      <h2 class="text-2xl font-extrabold" data-i18n="img"></h2>
+      <p class="mt-1 text-slate-500 dark:text-slate-400" data-i18n="imgDesc"></p>
+    </div>
+    <div data-dz data-tool="img" data-accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" data-multiple="true" data-key="dropImg" data-icon="image-plus"></div>
+
+    <div id="imgWrap" class="mt-6 hidden">
+      <div class="mb-3 flex items-center justify-between">
+        <h3 class="font-bold"><span data-i18n="images"></span> (<span id="imgCount">0</span>)</h3>
+        <button data-clear="img" class="text-sm font-semibold text-red-500 hover:underline" data-i18n="clearAll"></button>
+      </div>
+      <ul id="imgList" class="scroll-soft max-h-[28rem] space-y-2 overflow-y-auto"></ul>
+      <p class="mt-3 text-xs text-slate-500 dark:text-slate-400" data-i18n="mergeHint"></p>
+
+      <div class="mt-5 grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="lbl" for="imgPage" data-i18n="pageSize"></label>
+          <select id="imgPage" class="field">
+            <option value="fit" data-i18n="pageFit"></option>
+            <option value="a4" data-i18n="pageA4"></option>
+          </select>
+        </div>
+        <div>
+          <label class="lbl" for="imgQuality" data-i18n="quality"></label>
+          <select id="imgQuality" class="field">
+            <option value="0.95" data-i18n="qHigh"></option>
+            <option value="0.8" data-i18n="qMed"></option>
+            <option value="0.55" data-i18n="qLow"></option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <button id="btnImg" class="btn-primary mt-6 w-full sm:w-auto"><i data-lucide="file-plus" class="h-5 w-5"></i><span data-i18n="btnImg"></span></button>
+    <div data-result="img"></div>
+  </section>
+
+  <!-- ===================== 4. PROTECT ===================== -->
+  <section id="tool-protect" data-tool="protect" class="tool card hidden p-5 sm:p-8">
+    <div class="mb-6">
+      <h2 class="text-2xl font-extrabold" data-i18n="protect"></h2>
+      <p class="mt-1 text-slate-500 dark:text-slate-400" data-i18n="protectDesc"></p>
+    </div>
+    <div data-dz data-tool="protect" data-accept=".pdf,application/pdf" data-multiple="false" data-key="dropPdfOne" data-icon="upload"></div>
+    <div data-single="protect" class="mt-4"></div>
+
+    <div class="mt-6 grid gap-4 sm:grid-cols-2">
+      <div>
+        <label class="lbl" for="pw1" data-i18n="password"></label>
+        <div class="relative">
+          <input id="pw1" type="password" dir="ltr" class="field pe-11" autocomplete="new-password" maxlength="64">
+          <button type="button" id="pwToggle" class="icon-btn absolute end-1 top-1/2 -translate-y-1/2" aria-label="Show / hide">
+            <i data-lucide="eye" class="h-5 w-5"></i>
+          </button>
+        </div>
+      </div>
+      <div>
+        <label class="lbl" for="pw2" data-i18n="passwordConfirm"></label>
+        <input id="pw2" type="password" dir="ltr" class="field" autocomplete="new-password" maxlength="64">
+      </div>
+    </div>
+    <p class="mt-3 flex items-start gap-2 rounded-xl bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+      <i data-lucide="shield-check" class="mt-0.5 h-4 w-4 shrink-0"></i><span data-i18n="protectNote"></span>
+    </p>
+
+    <button id="btnProtect" class="btn-primary mt-6 w-full sm:w-auto"><i data-lucide="lock" class="h-5 w-5"></i><span data-i18n="btnProtect"></span></button>
+    <div data-result="protect"></div>
+  </section>
+
+  <!-- ===================== 5. WATERMARK ===================== -->
+  <section id="tool-wm" data-tool="wm" class="tool card hidden p-5 sm:p-8">
+    <div class="mb-6">
+      <h2 class="text-2xl font-extrabold" data-i18n="wm"></h2>
+      <p class="mt-1 text-slate-500 dark:text-slate-400" data-i18n="wmDesc"></p>
+    </div>
+    <div data-dz data-tool="wm" data-accept=".pdf,application/pdf" data-multiple="false" data-key="dropPdfOne" data-icon="upload"></div>
+    <div data-single="wm" class="mt-4"></div>
+
+    <div class="mt-6 grid gap-6 lg:grid-cols-2">
+      <div class="space-y-4">
+        <div>
+          <label class="lbl" for="wmText" data-i18n="wmText"></label>
+          <input id="wmText" type="text" dir="auto" maxlength="60" class="field" data-i18n-ph="wmTextPh">
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="lbl" for="wmLayout" data-i18n="wmLayout"></label>
+            <select id="wmLayout" class="field">
+              <option value="center" data-i18n="wmCenter"></option>
+              <option value="tile" data-i18n="wmTile"></option>
+            </select>
+          </div>
+          <div>
+            <label class="lbl" for="wmColor" data-i18n="wmColor"></label>
+            <input id="wmColor" type="color" value="#3b82f6" class="h-[2.7rem] w-full cursor-pointer rounded-xl border border-slate-300 bg-white p-1 dark:border-slate-700 dark:bg-slate-950">
+          </div>
+        </div>
+        <div>
+          <label class="lbl" for="wmSize"><span data-i18n="wmSize"></span>: <span id="wmSizeVal" dir="ltr">48</span></label>
+          <input id="wmSize" type="range" min="16" max="120" value="48" class="w-full">
+        </div>
+        <div>
+          <label class="lbl" for="wmOpacity"><span data-i18n="wmOpacity"></span>: <span id="wmOpacityVal" dir="ltr">25%</span></label>
+          <input id="wmOpacity" type="range" min="5" max="100" value="25" class="w-full">
+        </div>
+      </div>
+
+      <div>
+        <p class="lbl" data-i18n="wmPreview"></p>
+        <div class="relative mx-auto flex h-56 w-full max-w-sm items-center justify-center overflow-hidden rounded-xl border border-slate-300 bg-white shadow-inner dark:border-slate-700">
+          <div class="absolute inset-x-6 top-6 space-y-2 opacity-60">
+            <div class="h-2 rounded bg-slate-200"></div><div class="h-2 w-5/6 rounded bg-slate-200"></div>
+            <div class="h-2 w-4/6 rounded bg-slate-200"></div><div class="h-2 rounded bg-slate-200"></div>
+            <div class="h-2 w-3/6 rounded bg-slate-200"></div>
+          </div>
+          <img id="wmPreviewImg" alt="" class="absolute left-1/2 top-1/2 hidden max-w-[85%]" style="transform: translate(-50%,-50%) rotate(-45deg);">
+        </div>
+      </div>
+    </div>
+
+    <button id="btnWm" class="btn-primary mt-6 w-full sm:w-auto"><i data-lucide="stamp" class="h-5 w-5"></i><span data-i18n="btnWm"></span></button>
+    <div data-result="wm"></div>
+  </section>
+</main>
+
+<!-- ============================ FOOTER ============================ -->
+<footer class="border-t border-slate-200 bg-white py-8 dark:border-slate-800 dark:bg-slate-900">
+  <div class="mx-auto flex max-w-6xl flex-col items-center gap-5 px-4 text-center">
+    <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-3 text-sm font-semibold text-emerald-700 dark:text-emerald-300" dir="auto">
+      🔒 100% Safe &amp; Private - Files never leave your device / معالجة آمنة ومحلية 100% - ملفاتك لا تغادر جهازك
+    </div>
+    <a data-wa target="_blank" rel="noopener noreferrer"
+       class="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-6 py-3 font-bold text-white shadow-lg shadow-emerald-500/25 transition hover:bg-emerald-600">
+      <i data-lucide="message-circle" class="h-5 w-5"></i><span data-i18n="waCta"></span>
+    </a>
+    <p class="text-xs text-slate-400">© <span id="year"></span> <span data-i18n="appName"></span></p>
+  </div>
+</footer>
+
+<!-- ============================ LOADING OVERLAY ============================ -->
+<div id="loading" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm" role="alert" aria-live="assertive">
+  <div class="card pop w-full max-w-sm p-8 text-center">
+    <div class="spinner mx-auto"></div>
+    <p class="mt-5 text-lg font-bold" data-i18n="processing"></p>
+    <p id="loadingLabel" class="mt-1 min-h-[1.25rem] text-sm text-slate-500 dark:text-slate-400" dir="auto"></p>
+    <div class="mt-4 h-2.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+      <div id="loadingBar" class="h-full w-0 rounded-full bg-blue-500 transition-all duration-300"></div>
+    </div>
+    <p class="mt-3 text-xs text-slate-400" data-i18n="keepOpen"></p>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div id="toasts" class="pointer-events-none fixed inset-x-0 bottom-4 z-[60] flex flex-col items-center gap-2 px-4"></div>
+
+<!-- ============================ APP LOGIC ============================ -->
+<script id="app">
+(() => {
+  'use strict';
+
+  /* ------------------------------------------------------------------
+   * CONFIG
+   * Put your real WhatsApp number here (international format, digits only,
+   * no "+" or spaces). Example for Iraq: 9647701234567
+   * ------------------------------------------------------------------ */
+  const WHATSAPP_NUMBER = '9647856105758';
+  const WHATSAPP_MESSAGE = 'مرحباً، أحتاج حلول أرشفة متكاملة لمكتبي.';
+  const MAX_FILE_MB = 200;           // per-file safety limit (browser memory)
+  const MAX_IMAGE_DIM = 4000;        // px cap when compressing images into the PDF
+
+  /* ------------------------------------------------------------------
+   * i18n
+   * ------------------------------------------------------------------ */
+  const I18N = {
+    ar: {
+      docTitle: 'أدوات PDF والصور',
+      appName: 'أدوات PDF', appTag: 'معالجة محلية بالكامل داخل المتصفح',
+      waCta: 'هل تحتاج حلول أرشفة متكاملة لمكتبك؟ تواصل معنا عبر الواتساب', waShort: 'واتساب',
+      heroTitle: 'كل أدوات PDF والصور في مكان واحد',
+      heroSub: 'سريعة ومجانية وآمنة — تعمل بالكامل داخل متصفحك دون رفع أي ملف إلى الإنترنت.',
+      merge: 'دمج ملفات PDF', mergeDesc: 'ادمج عدة ملفات PDF في ملف واحد بالترتيب الذي تريده.',
+      split: 'تقسيم ملفات PDF', splitDesc: 'استخرج نطاقاً محدداً من الصفحات (مثل الصفحات 1 إلى 5) في ملف جديد.',
+      img: 'تحويل الصور إلى PDF', imgDesc: 'حوّل صور PNG / JPG إلى ملف PDF عالي الجودة بترتيبك.',
+      protect: 'حماية الـ PDF', protectDesc: 'أضف كلمة مرور لملف PDF قبل تحميله.',
+      wm: 'إضافة علامة مائية', wmDesc: 'ضع اسم متجرك أو اسمك كعلامة مائية على جميع صفحات الملف.',
+      dropPdfMulti: 'اسحب ملفات PDF هنا أو اضغط للاختيار',
+      dropPdfOne: 'اسحب ملف PDF هنا أو اضغط للاختيار',
+      dropImg: 'اسحب الصور (PNG / JPG) هنا أو اضغط للاختيار',
+      dropHint: 'تتم المعالجة على جهازك فقط',
+      files: 'الملفات', images: 'الصور', clearAll: 'حذف الكل',
+      mergeHint: 'استخدم الأسهم لتغيير الترتيب. سيتم الدمج بنفس الترتيب الظاهر.',
+      moveUp: 'تحريك للأعلى', moveDown: 'تحريك للأسفل', remove: 'إزالة',
+      btnMerge: 'دمج الملفات', btnSplit: 'استخراج الصفحات', btnImg: 'إنشاء ملف PDF',
+      btnProtect: 'حماية الملف بكلمة مرور', btnWm: 'إضافة العلامة المائية',
+      rangeLabel: 'نطاق الصفحات', rangePh: 'مثال: 1-5  أو  1-3, 7, 9-12',
+      rangeHint: 'اكتب نطاقاً (1-5) أو عدة صفحات/نطاقات مفصولة بفاصلة (1-3, 7, 9-12).',
+      totalPages: 'عدد الصفحات', pagesUnit: 'صفحة',
+      pageSize: 'حجم الصفحة', pageFit: 'مطابق لحجم الصورة', pageA4: 'A4 (مع هوامش)',
+      quality: 'جودة الصور', qHigh: 'عالية', qMed: 'متوسطة', qLow: 'منخفضة (حجم أصغر)',
+      password: 'كلمة المرور', passwordConfirm: 'تأكيد كلمة المرور',
+      protectNote: 'احتفظ بكلمة المرور في مكان آمن — لا يمكن استرجاعها إذا نسيتها.',
+      wmText: 'نص العلامة المائية', wmTextPh: 'مثال: اسم المتجر أو المدرّس',
+      wmLayout: 'طريقة العرض', wmCenter: 'قطري في المنتصف', wmTile: 'مكرّر على كامل الصفحة',
+      wmColor: 'اللون', wmSize: 'حجم الخط', wmOpacity: 'الشفافية', wmPreview: 'معاينة',
+      processing: 'جارٍ المعالجة...', keepOpen: 'يرجى عدم إغلاق الصفحة حتى تنتهي العملية',
+      done: 'تمت العملية بنجاح!', download: 'تحميل الملف', readyFile: 'ملفك جاهز',
+      pageWord: 'صفحة', reading: 'قراءة', adding: 'إضافة', preparing: 'تجهيز', saving: 'جارٍ الحفظ',
+      errNotPdf: 'تم تجاهل ملفات ليست PDF', errNotImage: 'تم تجاهل ملفات ليست صوراً مدعومة (PNG / JPG)',
+      errTooBig: 'الملف كبير جداً (الحد الأقصى %MB% ميغابايت)',
+      errNeedTwo: 'أضف ملفين PDF على الأقل للدمج.',
+      errNeedFile: 'اختر ملف PDF أولاً.', errNeedImg: 'أضف صورة واحدة على الأقل.',
+      errRange: 'نطاق الصفحات غير صالح. تأكد أن الأرقام بين 1 و %N%.',
+      errPwEmpty: 'أدخل كلمة مرور.', errPwMismatch: 'كلمتا المرور غير متطابقتين.',
+      errWmEmpty: 'اكتب نص العلامة المائية.',
+      errEncrypted: 'الملف محمي بكلمة مرور أو مشفّر ولا يمكن معالجته',
+      errCorrupt: 'تعذّرت قراءة الملف (قد يكون تالفاً)',
+      errImage: 'تعذّر فتح الصورة', errEncLib: 'مكتبة التشفير غير محمّلة. تحقق من اتصالك بالإنترنت ثم أعد تحميل الصفحة.',
+      errLib: 'تعذّر تحميل مكتبات المعالجة. تحقق من اتصالك بالإنترنت ثم أعد تحميل الصفحة.',
+      errGeneric: 'حدث خطأ غير متوقع. حاول مرة أخرى.',
+    },
+    en: {
+      docTitle: 'PDF Toolkit | PDF & Image Tools',
+      appName: 'PDF Toolkit', appTag: '100% in-browser processing',
+      waCta: 'Need complete archiving solutions for your office? Contact us on WhatsApp', waShort: 'WhatsApp',
+      heroTitle: 'All your PDF & image tools in one place',
+      heroSub: 'Fast, free and private — everything runs inside your browser and no file is ever uploaded.',
+      merge: 'Merge PDF', mergeDesc: 'Combine multiple PDF files into one, in the order you want.',
+      split: 'Split PDF', splitDesc: 'Extract a specific range of pages (e.g. pages 1 to 5) into a new file.',
+      img: 'Images to PDF', imgDesc: 'Turn PNG / JPG images into a high-quality PDF in your own order.',
+      protect: 'Protect PDF', protectDesc: 'Add a password to a PDF before downloading it.',
+      wm: 'Add Watermark', wmDesc: 'Stamp your store or teacher name as a watermark on every page.',
+      dropPdfMulti: 'Drag PDF files here or click to browse',
+      dropPdfOne: 'Drag a PDF file here or click to browse',
+      dropImg: 'Drag images (PNG / JPG) here or click to browse',
+      dropHint: 'Processed on your device only',
+      files: 'Files', images: 'Images', clearAll: 'Clear all',
+      mergeHint: 'Use the arrows to reorder. Output follows the order shown.',
+      moveUp: 'Move up', moveDown: 'Move down', remove: 'Remove',
+      btnMerge: 'Merge files', btnSplit: 'Extract pages', btnImg: 'Create PDF',
+      btnProtect: 'Protect with password', btnWm: 'Add watermark',
+      rangeLabel: 'Page range', rangePh: 'e.g. 1-5  or  1-3, 7, 9-12',
+      rangeHint: 'Type a range (1-5) or several pages/ranges separated by commas (1-3, 7, 9-12).',
+      totalPages: 'Total pages', pagesUnit: 'pages',
+      pageSize: 'Page size', pageFit: 'Match image size', pageA4: 'A4 (with margins)',
+      quality: 'Image quality', qHigh: 'High', qMed: 'Medium', qLow: 'Low (smaller file)',
+      password: 'Password', passwordConfirm: 'Confirm password',
+      protectNote: 'Keep your password somewhere safe — it cannot be recovered if you forget it.',
+      wmText: 'Watermark text', wmTextPh: 'e.g. Store or teacher name',
+      wmLayout: 'Layout', wmCenter: 'Diagonal, centered', wmTile: 'Tiled across the page',
+      wmColor: 'Color', wmSize: 'Font size', wmOpacity: 'Opacity', wmPreview: 'Preview',
+      processing: 'Processing...', keepOpen: 'Please keep this page open until it finishes',
+      done: 'Done successfully!', download: 'Download file', readyFile: 'Your file is ready',
+      pageWord: 'page', reading: 'Reading', adding: 'Adding', preparing: 'Preparing', saving: 'Saving',
+      errNotPdf: 'Ignored files that are not PDFs', errNotImage: 'Ignored files that are not supported images (PNG / JPG)',
+      errTooBig: 'File is too large (max %MB% MB)',
+      errNeedTwo: 'Add at least two PDF files to merge.',
+      errNeedFile: 'Choose a PDF file first.', errNeedImg: 'Add at least one image.',
+      errRange: 'Invalid page range. Numbers must be between 1 and %N%.',
+      errPwEmpty: 'Enter a password.', errPwMismatch: 'Passwords do not match.',
+      errWmEmpty: 'Type the watermark text.',
+      errEncrypted: 'File is password-protected / encrypted and cannot be processed',
+      errCorrupt: 'Could not read the file (it may be corrupted)',
+      errImage: 'Could not open the image', errEncLib: 'Encryption library failed to load. Check your connection and reload the page.',
+      errLib: 'Processing libraries failed to load. Check your connection and reload the page.',
+      errGeneric: 'Something went wrong. Please try again.',
+    }
+  };
+
+  /* ------------------------------------------------------------------
+   * Helpers
+   * ------------------------------------------------------------------ */
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const tick = (ms = 20) => new Promise(r => setTimeout(r, ms));
+  const fmtSize = b => b < 1024 * 1024 ? (b / 1024).toFixed(0) + ' KB' : (b / 1024 / 1024).toFixed(2) + ' MB';
+  const baseName = n => n.replace(/\.[^.]+$/, '');
+  const isPdf = f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+  const isImg = f => /^image\/(png|jpe?g|webp)$/i.test(f.type) || /\.(png|jpe?g|webp)$/i.test(f.name);
+  let uid = 0;
+
+  class UserError extends Error {}
+
+  /* ------------------------------------------------------------------
+   * Icons — embedded inline SVG (Lucide icon shapes), so they always
+   * render and never depend on an external CDN.
+   * Usage in HTML: <i data-lucide="name" class="h-5 w-5"></i>
+   * ------------------------------------------------------------------ */
+  const ICONS = {
+    'file-text': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+    'message-circle': '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+    'languages': '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>',
+    'sun': '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+    'moon': '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+    'merge': '<path d="m8 6 4-4 4 4"/><path d="M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22"/><path d="m20 22-5-5"/>',
+    'scissors': '<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>',
+    'images': '<path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18"/><circle cx="12" cy="8" r="2"/><rect width="16" height="16" x="6" y="2" rx="2"/>',
+    'lock': '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    'stamp': '<path d="M5 22h14"/><path d="M19.27 13.73A2.5 2.5 0 0 0 17.5 13h-11A2.5 2.5 0 0 0 4 15.5V17a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1.5c0-.66-.26-1.3-.73-1.77Z"/><path d="M14 13V8.5C14 7 15 7 15 5a3 3 0 0 0-3-3c-1.66 0-3 1-3 3s1 2 1 3.5V13"/>',
+    'upload': '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
+    'image-plus': '<path d="M16 5h6"/><path d="M19 2v6"/><path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/><circle cx="9" cy="9" r="2"/>',
+    'file-plus': '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/>',
+    'check': '<path d="M20 6 9 17l-5-5"/>',
+    'download': '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+    'chevron-up': '<path d="m18 15-6-6-6 6"/>',
+    'chevron-down': '<path d="m6 9 6 6 6-6"/>',
+    'trash-2': '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>',
+    'eye': '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+    'eye-off': '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>',
+    'shield-check': '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>'
+  };
+  // Replaces every <i data-lucide="..."> placeholder with its inline SVG.
+  const lucide = {
+    createIcons() {
+      $$('i[data-lucide]').forEach(el => {
+        const body = ICONS[el.dataset.lucide];
+        if (!body) return;
+        const tpl = document.createElement('template');
+        tpl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${el.className}" aria-hidden="true">${body}</svg>`;
+        el.replaceWith(tpl.content.firstChild);
+      });
+    }
+  };
+
+  let lang = 'ar';
+  try { lang = localStorage.getItem('lang') || 'ar'; } catch (e) {}
+  if (!I18N[lang]) lang = 'ar';
+  const t = k => (I18N[lang][k] ?? I18N.ar[k] ?? k);
+
+  /* ------------------------------------------------------------------
+   * State
+   * ------------------------------------------------------------------ */
+  const state = {
+    merge: [],        // [{id, file}]
+    img: [],          // [{id, file, url}]
+    split: null,      // {file, pages}
+    protect: null,    // {file}
+    wm: null          // {file, pages}
+  };
+  const results = { merge: null, split: null, img: null, protect: null, wm: null };
+
+  /* ------------------------------------------------------------------
+   * Toasts & loading overlay
+   * ------------------------------------------------------------------ */
+  function toast(msg, type = 'info') {
+    const colors = { error: 'bg-red-500', success: 'bg-emerald-500', info: 'bg-slate-800' };
+    const el = document.createElement('div');
+    el.className = `pop pointer-events-auto max-w-md rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-xl ${colors[type] || colors.info}`;
+    el.textContent = msg;
+    $('#toasts').appendChild(el);
+    setTimeout(() => { el.style.transition = 'opacity .3s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 4500);
+  }
+
+  function showLoading() {
+    $('#loadingBar').style.width = '3%';
+    $('#loadingLabel').textContent = '';
+    const o = $('#loading'); o.classList.remove('hidden'); o.classList.add('flex');
+  }
+  function hideLoading() {
+    const o = $('#loading'); o.classList.add('hidden'); o.classList.remove('flex');
+  }
+  function setProgress(frac, label) {
+    $('#loadingBar').style.width = Math.max(3, Math.min(100, Math.round(frac * 100))) + '%';
+    if (label !== undefined) $('#loadingLabel').textContent = label;
+  }
+
+  /** Runs a processing job with spinner, error handling and result display. */
+  async function runTask(tool, job) {
+    setResult(tool, null);
+    showLoading();
+    await tick(60);
+    try {
+      const res = await job(setProgress);
+      setProgress(1, '');
+      await tick(250);
+      setResult(tool, res);
+      toast(t('done'), 'success');
+    } catch (e) {
+      console.error(e);
+      toast(e instanceof UserError ? e.message : t('errGeneric'), 'error');
+    } finally {
+      hideLoading();
+    }
+  }
+
+  function needLibs(...names) {
+    for (const n of names) if (!window[n]) throw new UserError(t('errLib'));
+  }
+  function fileError(e, name) {
+    const enc = /encrypt/i.test(e && e.message || '');
+    return new UserError(`${t(enc ? 'errEncrypted' : 'errCorrupt')}: ${name}`);
+  }
+
+  /* ------------------------------------------------------------------
+   * Results (download card)
+   * ------------------------------------------------------------------ */
+  function setResult(tool, res) {
+    if (results[tool]) URL.revokeObjectURL(results[tool].url);
+    if (!res) results[tool] = null;
+    else {
+      const blob = new Blob([res.bytes], { type: 'application/pdf' });
+      results[tool] = { url: URL.createObjectURL(blob), name: res.name, size: blob.size };
+    }
+    renderResult(tool);
+  }
+  function renderResult(tool) {
+    const slot = $(`[data-result="${tool}"]`);
+    const r = results[tool];
+    if (!r) { slot.innerHTML = ''; return; }
+    slot.innerHTML = `
+      <div class="pop mt-6 flex flex-col items-start gap-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex min-w-0 items-center gap-3">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white"><i data-lucide="check" class="h-6 w-6"></i></span>
+          <div class="min-w-0">
+            <p class="font-bold text-emerald-700 dark:text-emerald-300">${esc(t('readyFile'))}</p>
+            <p class="truncate text-sm text-slate-600 dark:text-slate-300" dir="ltr">${esc(r.name)} · ${fmtSize(r.size)}</p>
+          </div>
+        </div>
+        <a href="${r.url}" download="${esc(r.name)}" class="btn-primary w-full sm:w-auto"><i data-lucide="download" class="h-5 w-5"></i>${esc(t('download'))}</a>
+      </div>`;
+    lucide.createIcons();
+  }
+
+  /* ------------------------------------------------------------------
+   * Drop zones
+   * ------------------------------------------------------------------ */
+  function buildDropzones() {
+    $$('[data-dz]').forEach(slot => {
+      const { accept, multiple, key, icon, tool } = slot.dataset;
+      slot.innerHTML = `
+        <label class="dz" tabindex="0">
+          <input type="file" class="sr-only" accept="${esc(accept)}" ${multiple === 'true' ? 'multiple' : ''}>
+          <span class="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-500"><i data-lucide="${icon}" class="h-7 w-7"></i></span>
+          <span class="font-bold" data-i18n="${key}"></span>
+          <span class="text-xs text-slate-500 dark:text-slate-400" data-i18n="dropHint"></span>
+        </label>`;
+      const label = slot.firstElementChild;
+      const input = $('input', label);
+      input.addEventListener('change', () => { handleFiles(tool, [...input.files]); input.value = ''; });
+      label.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+      ['dragenter', 'dragover'].forEach(ev => label.addEventListener(ev, e => { e.preventDefault(); label.classList.add('dz-over'); }));
+      label.addEventListener('dragleave', e => { e.preventDefault(); label.classList.remove('dz-over'); });
+      label.addEventListener('drop', e => {
+        e.preventDefault(); label.classList.remove('dz-over');
+        handleFiles(tool, [...(e.dataTransfer?.files || [])]);
+      });
+    });
+    // Stop the browser from navigating away when a file is dropped outside a zone
+    window.addEventListener('dragover', e => e.preventDefault());
+    window.addEventListener('drop', e => e.preventDefault());
+  }
+
+  /** Split a file list into accepted files and warn about the rest. */
+  function filterFiles(files, test, errKey) {
+    const ok = [];
+    let rejected = 0;
+    for (const f of files) {
+      if (!test(f)) { rejected++; continue; }
+      if (f.size > MAX_FILE_MB * 1024 * 1024) { toast(`${t('errTooBig').replace('%MB%', MAX_FILE_MB)}: ${f.name}`, 'error'); continue; }
+      ok.push(f);
+    }
+    if (rejected) toast(t(errKey), 'error');
+    return ok;
+  }
+
+  /** Reads a PDF just to learn its page count (and validate it). */
+  async function inspectPdf(file) {
+    needLibs('PDFLib');
+    try {
+      const doc = await PDFLib.PDFDocument.load(await file.arrayBuffer());
+      return doc.getPageCount();
+    } catch (e) { throw fileError(e, file.name); }
+  }
+
+  async function handleFiles(tool, files) {
+    if (!files.length) return;
+    try {
+      if (tool === 'merge') {
+        const ok = filterFiles(files, isPdf, 'errNotPdf');
+        ok.forEach(file => state.merge.push({ id: ++uid, file }));
+        setResult('merge', null); renderList('merge');
+      } else if (tool === 'img') {
+        const ok = filterFiles(files, isImg, 'errNotImage');
+        ok.forEach(file => state.img.push({ id: ++uid, file, url: URL.createObjectURL(file) }));
+        setResult('img', null); renderList('img');
+      } else {
+        // single-PDF tools: split, protect, wm
+        const ok = filterFiles(files.slice(0, 1), isPdf, 'errNotPdf');
+        if (!ok.length) return;
+        const file = ok[0];
+        showLoading(); setProgress(.4, file.name);
+        try {
+          const pages = await inspectPdf(file);
+          state[tool] = { file, pages };
+        } finally { hideLoading(); }
+        setResult(tool, null);
+        if (tool === 'split') $('#splitRange').value = `1-${state.split.pages}`;
+        renderSingle(tool);
+      }
+    } catch (e) {
+      console.error(e);
+      toast(e instanceof UserError ? e.message : t('errGeneric'), 'error');
+    }
+  }
+
+  /* ------------------------------------------------------------------
+   * Rendering lists / single-file cards
+   * ------------------------------------------------------------------ */
+  function renderList(tool) {
+    const arr = state[tool];
+    const wrap = $(`#${tool}Wrap`);
+    wrap.classList.toggle('hidden', arr.length === 0);
+    $(`#${tool}Count`).textContent = arr.length;
+    $(`#${tool}List`).innerHTML = arr.map((it, i) => `
+      <li data-i="${i}" class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-2.5 dark:border-slate-800 dark:bg-slate-950">
+        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-xs font-bold text-blue-500">${i + 1}</span>
+        ${tool === 'img'
+          ? `<img src="${it.url}" alt="" class="h-14 w-14 shrink-0 rounded-lg border border-slate-200 object-cover dark:border-slate-700">`
+          : `<span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-500"><i data-lucide="file-text" class="h-5 w-5"></i></span>`}
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-semibold" dir="auto">${esc(it.file.name)}</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400" dir="ltr" style="text-align:start">${fmtSize(it.file.size)}</p>
+        </div>
+        <div class="flex shrink-0 items-center">
+          <button data-act="up" class="icon-btn" title="${esc(t('moveUp'))}" ${i === 0 ? 'disabled style="opacity:.3"' : ''}><i data-lucide="chevron-up" class="h-5 w-5"></i></button>
+          <button data-act="down" class="icon-btn" title="${esc(t('moveDown'))}" ${i === arr.length - 1 ? 'disabled style="opacity:.3"' : ''}><i data-lucide="chevron-down" class="h-5 w-5"></i></button>
+          <button data-act="rm" class="icon-btn hover:!text-red-500" title="${esc(t('remove'))}"><i data-lucide="trash-2" class="h-5 w-5"></i></button>
+        </div>
+      </li>`).join('');
+    lucide.createIcons();
+  }
+
+  function renderSingle(tool) {
+    const slot = $(`[data-single="${tool}"]`);
+    const it = state[tool];
+    if (tool === 'split') $('#splitOpts').classList.toggle('hidden', !it);
+    if (!it) { slot.innerHTML = ''; return; }
+    slot.innerHTML = `
+      <div class="pop flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
+        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-500"><i data-lucide="file-text" class="h-5 w-5"></i></span>
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-semibold" dir="auto">${esc(it.file.name)}</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400">${fmtSize(it.file.size)}${it.pages ? ` · ${esc(t('totalPages'))}: ${it.pages}` : ''}</p>
+        </div>
+        <button data-clear="${tool}" class="icon-btn hover:!text-red-500" title="${esc(t('remove'))}"><i data-lucide="trash-2" class="h-5 w-5"></i></button>
+      </div>`;
+    lucide.createIcons();
+  }
+
+  function clearTool(tool) {
+    if (tool === 'img') state.img.forEach(i => URL.revokeObjectURL(i.url));
+    if (tool === 'merge' || tool === 'img') { state[tool] = []; renderList(tool); }
+    else {
+      state[tool] = null;
+      if (tool === 'split') $('#splitRange').value = '';
+      renderSingle(tool);
+    }
+    setResult(tool, null);
+  }
+
+  function bindListActions() {
+    ['merge', 'img'].forEach(tool => {
+      $(`#${tool}List`).addEventListener('click', e => {
+        const b = e.target.closest('button[data-act]');
+        if (!b || b.disabled) return;
+        const i = +b.closest('li').dataset.i;
+        const arr = state[tool];
+        const act = b.dataset.act;
+        if (act === 'up' && i > 0) [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+        else if (act === 'down' && i < arr.length - 1) [arr[i + 1], arr[i]] = [arr[i], arr[i + 1]];
+        else if (act === 'rm') { if (tool === 'img') URL.revokeObjectURL(arr[i].url); arr.splice(i, 1); }
+        setResult(tool, null);
+        renderList(tool);
+      });
+    });
+    document.addEventListener('click', e => {
+      const b = e.target.closest('[data-clear]');
+      if (b) clearTool(b.dataset.clear);
+    });
+  }
+
+  /* ------------------------------------------------------------------
+   * TOOL 1: Merge
+   * ------------------------------------------------------------------ */
+  async function doMerge() {
+    if (state.merge.length < 2) return toast(t('errNeedTwo'), 'error');
+    await runTask('merge', async progress => {
+      needLibs('PDFLib');
+      const out = await PDFLib.PDFDocument.create();
+      const n = state.merge.length;
+      for (let i = 0; i < n; i++) {
+        const f = state.merge[i].file;
+        progress(i / n * 0.9, `${t('adding')} ${i + 1}/${n} — ${f.name}`);
+        await tick();
+        let src;
+        try { src = await PDFLib.PDFDocument.load(await f.arrayBuffer()); }
+        catch (e) { throw fileError(e, f.name); }
+        const pages = await out.copyPages(src, src.getPageIndices());
+        pages.forEach(p => out.addPage(p));
+      }
+      progress(.95, t('saving'));
+      return { bytes: await out.save(), name: 'merged.pdf' };
+    });
+  }
+
+  /* ------------------------------------------------------------------
+   * TOOL 2: Split / extract pages
+   * ------------------------------------------------------------------ */
+  /** Parses "1-3, 7, 9-12" (also Arabic-Indic digits) into sorted-by-input 0-based indices. */
+  function parseRanges(str, max) {
+    const normalized = str
+      .replace(/[\u0660-\u0669]/g, d => d.charCodeAt(0) - 0x660)
+      .replace(/[\u06F0-\u06F9]/g, d => d.charCodeAt(0) - 0x6F0)
+      .replace(/[،;؛\s]+/g, ',');
+    const parts = normalized.split(',').map(s => s.trim()).filter(Boolean);
+    if (!parts.length) throw new UserError(t('errRange').replace('%N%', max));
+    const seen = new Set(); const out = [];
+    for (const p of parts) {
+      const m = p.match(/^(\d+)(?:[-–—](\d+))?$/);
+      if (!m) throw new UserError(t('errRange').replace('%N%', max));
+      const a = +m[1], b = m[2] ? +m[2] : a;
+      if (a < 1 || b > max || a > b) throw new UserError(t('errRange').replace('%N%', max));
+      for (let i = a; i <= b; i++) if (!seen.has(i)) { seen.add(i); out.push(i - 1); }
+    }
+    return out;
+  }
+
+  async function doSplit() {
+    const s = state.split;
+    if (!s) return toast(t('errNeedFile'), 'error');
+    const indices = parseRanges($('#splitRange').value, s.pages); // throws UserError
+    await runTask('split', async progress => {
+      needLibs('PDFLib');
+      progress(.2, `${t('reading')} — ${s.file.name}`); await tick();
+      let src;
+      try { src = await PDFLib.PDFDocument.load(await s.file.arrayBuffer()); }
+      catch (e) { throw fileError(e, s.file.name); }
+      const out = await PDFLib.PDFDocument.create();
+      progress(.5, `${indices.length} ${t('pagesUnit')}`); await tick();
+      const pages = await out.copyPages(src, indices);
+      pages.forEach(p => out.addPage(p));
+      progress(.9, t('saving'));
+      return { bytes: await out.save(), name: `${baseName(s.file.name)}_pages.pdf` };
+    });
+  }
+
+  /* ------------------------------------------------------------------
+   * TOOL 3: Images -> PDF (jsPDF)
+   * ------------------------------------------------------------------ */
+  function loadImage(url, name) {
+    return new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new UserError(`${t('errImage')}: ${name}`));
+      im.src = url;
+    });
+  }
+
+  async function doImages() {
+    if (!state.img.length) return toast(t('errNeedImg'), 'error');
+    const mode = $('#imgPage').value;
+    const quality = parseFloat($('#imgQuality').value);
+    await runTask('img', async progress => {
+      needLibs('jspdf');
+      const { jsPDF } = window.jspdf;
+      let doc = null;
+      const n = state.img.length;
+      for (let i = 0; i < n; i++) {
+        const it = state.img[i];
+        progress(i / n * 0.92, `${t('adding')} ${i + 1}/${n} — ${it.file.name}`);
+        await tick();
+        const im = await loadImage(it.url, it.file.name);
+        // Re-draw on a white canvas: flattens PNG transparency and normalises PNG/JPG/WebP to JPEG.
+        const k = Math.min(1, MAX_IMAGE_DIM / Math.max(im.naturalWidth, im.naturalHeight));
+        const cw = Math.max(1, Math.round(im.naturalWidth * k)), ch = Math.max(1, Math.round(im.naturalHeight * k));
+        const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch);
+        ctx.drawImage(im, 0, 0, cw, ch);
+        const data = cv.toDataURL('image/jpeg', quality);
+        cv.width = cv.height = 0;
+
+        if (mode === 'fit') {
+          const pw = cw * 0.75, ph = ch * 0.75;      // px -> pt
+          const orient = pw > ph ? 'l' : 'p';
+          if (!doc) doc = new jsPDF({ orientation: orient, unit: 'pt', format: [pw, ph], compress: true });
+          else doc.addPage([pw, ph], orient);
+          doc.addImage(data, 'JPEG', 0, 0, pw, ph, undefined, 'FAST');
+        } else {
+          const orient = cw > ch ? 'l' : 'p';
+          if (!doc) doc = new jsPDF({ orientation: orient, unit: 'mm', format: 'a4', compress: true });
+          else doc.addPage('a4', orient);
+          const PW = orient === 'l' ? 297 : 210, PH = orient === 'l' ? 210 : 297, M = 10;
+          const r = Math.min((PW - 2 * M) / cw, (PH - 2 * M) / ch);
+          const iw = cw * r, ih = ch * r;
+          doc.addImage(data, 'JPEG', (PW - iw) / 2, (PH - ih) / 2, iw, ih, undefined, 'FAST');
+        }
+      }
+      progress(.96, t('saving'));
+      return { bytes: new Uint8Array(doc.output('arraybuffer')), name: 'images.pdf' };
+    });
+  }
+
+  /* ------------------------------------------------------------------
+   * TOOL 4: Protect PDF (password encryption)
+   * ------------------------------------------------------------------ */
+  function randomHex(len = 16) {
+    const a = new Uint8Array(len); crypto.getRandomValues(a);
+    return [...a].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function doProtect() {
+    const s = state.protect;
+    if (!s) return toast(t('errNeedFile'), 'error');
+    const pw = $('#pw1').value, pw2 = $('#pw2').value;
+    if (!pw) return toast(t('errPwEmpty'), 'error');
+    if (pw !== pw2) return toast(t('errPwMismatch'), 'error');
+    await runTask('protect', async progress => {
+      needLibs('PDFLib');
+      progress(.25, `${t('reading')} — ${s.file.name}`); await tick();
+      let pdf;
+      try { pdf = await PDFLib.PDFDocument.load(await s.file.arrayBuffer()); }
+      catch (e) { throw fileError(e, s.file.name); }
+      if (typeof pdf.encrypt !== 'function') throw new UserError(t('errEncLib'));
+      progress(.6, t('preparing')); await tick();
+      pdf.encrypt({
+        userPassword: pw,                         // password required to open the file
+        ownerPassword: pw + '#' + randomHex(),    // separate random owner password
+        permissions: {
+          printing: 'highResolution', copying: true, contentAccessibility: true,
+          modifying: false, annotating: false, fillingForms: false, documentAssembly: false
+        }
+      });
+      progress(.85, t('saving'));
+      return { bytes: await pdf.save(), name: `${baseName(s.file.name)}_protected.pdf` };
+    });
+  }
+
+  /* ------------------------------------------------------------------
+   * TOOL 5: Watermark
+   * Text is drawn on a canvas by the browser (so Arabic shaping / RTL works
+   * perfectly) and embedded as a transparent PNG on each page.
+   * ------------------------------------------------------------------ */
+  async function renderWmCanvas(text, size, color) {
+    try { await document.fonts.load(`700 ${size}px Cairo`, text); } catch (e) {}
+    const S = 3;                                   // supersampling for crisp output
+    const font = `700 ${size * S}px Cairo, sans-serif`;
+    const m = document.createElement('canvas').getContext('2d');
+    m.font = font;
+    const w = Math.ceil(m.measureText(text).width + size * S * 0.8);
+    const h = Math.ceil(size * S * 1.8);
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.font = font; ctx.fillStyle = color;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.direction = /[\u0590-\u08FF]/.test(text) ? 'rtl' : 'ltr';
+    ctx.fillText(text, w / 2, h / 2);
+    return { canvas: c, w: w / S, h: h / S };
+  }
+
+  let previewSeq = 0;
+  async function updateWmPreview() {
+    const seq = ++previewSeq;
+    const img = $('#wmPreviewImg');
+    const text = $('#wmText').value.trim();
+    $('#wmSizeVal').textContent = $('#wmSize').value;
+    $('#wmOpacityVal').textContent = $('#wmOpacity').value + '%';
+    if (!text) { img.classList.add('hidden'); return; }
+    // The preview card is ~384px wide; scale the font so the preview roughly matches an A4 page.
+    const size = Math.max(8, +$('#wmSize').value * 0.5);
+    const { canvas, w } = await renderWmCanvas(text, size, $('#wmColor').value);
+    if (seq !== previewSeq) return;
+    img.src = canvas.toDataURL('image/png');
+    img.style.width = Math.min(w, 330) + 'px';
+    img.style.opacity = (+$('#wmOpacity').value) / 100;
+    img.classList.remove('hidden');
+  }
+
+  /** Draws `png` so that its CENTER lands on (cx, cy), rotated CCW by `deg` degrees. */
+  function drawRotated(page, png, cx, cy, w, h, deg, opacity) {
+    const th = deg * Math.PI / 180;
+    const x = cx - (w / 2 * Math.cos(th) - h / 2 * Math.sin(th));
+    const y = cy - (w / 2 * Math.sin(th) + h / 2 * Math.cos(th));
+    page.drawImage(png, { x, y, width: w, height: h, rotate: PDFLib.degrees(deg), opacity });
+  }
+
+  async function doWatermark() {
+    const s = state.wm;
+    if (!s) return toast(t('errNeedFile'), 'error');
+    const text = $('#wmText').value.trim();
+    if (!text) return toast(t('errWmEmpty'), 'error');
+    const size = +$('#wmSize').value, opacity = (+$('#wmOpacity').value) / 100;
+    const color = $('#wmColor').value, layout = $('#wmLayout').value;
+
+    await runTask('wm', async progress => {
+      needLibs('PDFLib');
+      progress(.1, `${t('reading')} — ${s.file.name}`); await tick();
+      let pdf;
+      try { pdf = await PDFLib.PDFDocument.load(await s.file.arrayBuffer()); }
+      catch (e) { throw fileError(e, s.file.name); }
+
+      progress(.2, t('preparing')); await tick();
+      const { canvas, w, h } = await renderWmCanvas(text, size, color);
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+      const png = await pdf.embedPng(await blob.arrayBuffer());
+
+      const pages = pdf.getPages();
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        const { width: pw, height: ph } = page.getSize();
+        if (layout === 'center') {
+          const deg = 45, th = deg * Math.PI / 180;
+          // Shrink if the rotated text would overflow the page
+          const k = Math.min(1,
+            (pw * 0.9) / (w * Math.cos(th) + h * Math.sin(th)),
+            (ph * 0.9) / (w * Math.sin(th) + h * Math.cos(th)));
+          drawRotated(page, png, pw / 2, ph / 2, w * k, h * k, deg, opacity);
+        } else {
+          const deg = 30, k = Math.min(1, pw / (w * 1.4));
+          const dw = w * k, dh = h * k;
+          const stepX = dw * 1.35, stepY = dh * 2.6;
+          let row = 0;
+          for (let cy = stepY / 2; cy < ph + stepY / 2; cy += stepY, row++) {
+            const offset = row % 2 ? stepX / 2 : 0;
+            for (let cx = offset; cx < pw + stepX / 2; cx += stepX) {
+              drawRotated(page, png, cx, cy, dw, dh, deg, opacity);
+            }
+          }
+        }
+        if (i % 5 === 0) { progress(.25 + (i / pages.length) * .65, `${t('pageWord')} ${i + 1}/${pages.length}`); await tick(5); }
+      }
+      progress(.95, t('saving'));
+      return { bytes: await pdf.save(), name: `${baseName(s.file.name)}_watermarked.pdf` };
+    });
+  }
+
+  /* ------------------------------------------------------------------
+   * Navigation, theme, language
+   * ------------------------------------------------------------------ */
+  function showTool(id) {
+    if (!$(`#tool-${id}`)) id = 'merge';
+    $$('.tool').forEach(s => s.classList.toggle('hidden', s.dataset.tool !== id));
+    $$('[data-tab]').forEach(b => b.classList.toggle('tab-active', b.dataset.tab === id));
+    try { history.replaceState(null, '', '#' + id); } catch (e) {}
+  }
+
+  function applyLang() {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+    document.title = t('docTitle');
+    $$('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+    $$('[data-i18n-ph]').forEach(el => { el.placeholder = t(el.dataset.i18nPh); });
+    $('#langLabel').textContent = lang === 'ar' ? 'English' : 'العربية';
+    renderList('merge'); renderList('img');
+    ['split', 'protect', 'wm'].forEach(renderSingle);
+    Object.keys(results).forEach(renderResult);
+    lucide.createIcons();
+  }
+
+  function setupWhatsApp() {
+    const href = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(WHATSAPP_MESSAGE)}`;
+    $$('[data-wa]').forEach(a => { a.href = href; });
+  }
+
+  function init() {
+    $('#year').textContent = new Date().getFullYear();
+    buildDropzones();
+    bindListActions();
+    setupWhatsApp();
+
+    $$('[data-tab]').forEach(b => b.addEventListener('click', () => showTool(b.dataset.tab)));
+    window.addEventListener('hashchange', () => showTool(location.hash.slice(1)));
+
+    $('#langBtn').addEventListener('click', () => {
+      lang = lang === 'ar' ? 'en' : 'ar';
+      try { localStorage.setItem('lang', lang); } catch (e) {}
+      applyLang();
+    });
+    $('#themeBtn').addEventListener('click', () => {
+      const dark = document.documentElement.classList.toggle('dark');
+      try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (e) {}
+    });
+    $('#pwToggle').addEventListener('click', () => {
+      const show = $('#pw1').type === 'password';
+      $('#pw1').type = $('#pw2').type = show ? 'text' : 'password';
+      $('#pwToggle').innerHTML = `<i data-lucide="${show ? 'eye-off' : 'eye'}" class="h-5 w-5"></i>`;
+      lucide.createIcons();
+    });
+
+    $('#btnMerge').addEventListener('click', doMerge);
+    $('#btnSplit').addEventListener('click', doSplit);
+    $('#btnImg').addEventListener('click', doImages);
+    $('#btnProtect').addEventListener('click', doProtect);
+    $('#btnWm').addEventListener('click', doWatermark);
+
+    let wmTimer;
+    ['wmText', 'wmSize', 'wmOpacity', 'wmColor'].forEach(id =>
+      $('#' + id).addEventListener('input', () => { clearTimeout(wmTimer); wmTimer = setTimeout(updateWmPreview, 120); }));
+    updateWmPreview();
+
+    applyLang();
+    showTool(location.hash.slice(1) || 'merge');
+
+    if (!window.PDFLib || !window.jspdf) toast(t('errLib'), 'error');
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+</body>
+</html>
